@@ -1,10 +1,12 @@
-import { GestureRecognizer, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs';
+import { GestureRecognizer, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
 
 // DOM Elements - Shell & Controls
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const overlay = document.getElementById('overlay');
 const cameraShell = document.getElementById('cameraShell');
+const cameraStartOverlay = document.getElementById('cameraStartOverlay');
+const btnStartCamera = document.getElementById('btnStartCamera');
 const gestureToast = document.getElementById('gestureToast');
 const toastIcon = document.getElementById('toastIcon');
 const toastText = document.getElementById('toastText');
@@ -79,6 +81,11 @@ let speechAudioEnabled = true;
 let bubblesEnabled = true;
 let trailsEnabled = true;
 let skeletonEnabled = true;
+let cameraRunning = false;
+
+// Frame processing timestamps
+let lastVideoTime = -1;
+let lastTimestamp = -1;
 
 // Sign Translation State
 let transcript = '';
@@ -87,7 +94,7 @@ let currentCandidateSign = null;
 let candidateHoldStart = 0;
 let lastCommittedSign = null;
 let lastCommitTime = 0;
-const HOLD_REQUIRED_MS = 680;
+const HOLD_REQUIRED_MS = 650;
 const COMMIT_COOLDOWN_MS = 600;
 
 // Web Speech API
@@ -973,14 +980,115 @@ function handleVfxGestures(result) {
 // ==========================================
 // Particle Engine Update & Render
 // ==========================================
-class ParticleSystem {
-  static updateAndDraw() {
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.update();
-      p.draw(ctx);
-      if (p.life <= 0) particles.splice(i, 1);
+class Particle {
+  constructor(options = {}) {
+    this.x = options.x || 0;
+    this.y = options.y || 0;
+    this.vx = options.vx || (Math.random() - 0.5) * 6;
+    this.vy = options.vy || (Math.random() - 0.5) * 6;
+    this.life = options.life || 1.0;
+    this.maxLife = this.life;
+    this.decay = options.decay || 0.025;
+    this.size = options.size || 8;
+    this.color = options.color || '#4ce1ff';
+    this.type = options.type || 'sparkle';
+    this.rotation = Math.random() * Math.PI * 2;
+    this.vRot = (Math.random() - 0.5) * 0.2;
+    this.gravity = options.gravity || 0;
+  }
+
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vy += this.gravity;
+    this.rotation += this.vRot;
+    this.life -= this.decay;
+  }
+
+  draw(context) {
+    if (this.life <= 0) return;
+    const alpha = Math.max(0, this.life / this.maxLife);
+    context.save();
+    context.translate(this.x, this.y);
+    context.rotate(this.rotation);
+    context.globalAlpha = alpha;
+
+    if (this.type === 'star') {
+      context.fillStyle = this.color;
+      drawStar(context, 0, 0, 5, this.size, this.size * 0.45);
+    } else if (this.type === 'confetti') {
+      context.fillStyle = this.color;
+      context.fillRect(-this.size, -this.size * 0.4, this.size * 2, this.size * 0.8);
+    } else if (this.type === 'heart') {
+      context.fillStyle = this.color;
+      drawHeart(context, 0, 0, this.size);
+    } else if (this.type === 'fire') {
+      const grad = context.createRadialGradient(0, 0, 0, 0, 0, this.size);
+      grad.addColorStop(0, '#fff4b8');
+      grad.addColorStop(0.4, this.color);
+      grad.addColorStop(1, 'transparent');
+      context.fillStyle = grad;
+      context.beginPath();
+      context.arc(0, 0, this.size, 0, Math.PI * 2);
+      context.fill();
+    } else {
+      context.fillStyle = this.color;
+      context.shadowBlur = 8;
+      context.shadowColor = this.color;
+      context.beginPath();
+      context.arc(0, 0, this.size, 0, Math.PI * 2);
+      context.fill();
     }
+    context.restore();
+  }
+}
+
+function drawStar(ctx, cx, cy, spikes, outerRadius, innerRadius) {
+  let rot = (Math.PI / 2) * 3;
+  let x = cx;
+  let y = cy;
+  const step = Math.PI / spikes;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - outerRadius);
+  for (let i = 0; i < spikes; i++) {
+    x = cx + Math.cos(rot) * outerRadius;
+    y = cy + Math.sin(rot) * outerRadius;
+    ctx.lineTo(x, y);
+    rot += step;
+    x = cx + Math.cos(rot) * innerRadius;
+    y = cy + Math.sin(rot) * innerRadius;
+    ctx.lineTo(x, y);
+    rot += step;
+  }
+  ctx.lineTo(cx, cy - outerRadius);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawHeart(ctx, x, y, size) {
+  ctx.beginPath();
+  const topCurveHeight = size * 0.3;
+  ctx.moveTo(x, y + topCurveHeight);
+  ctx.bezierCurveTo(x, y, x - size / 2, y, x - size / 2, y + topCurveHeight);
+  ctx.bezierCurveTo(x - size / 2, y + (size + topCurveHeight) / 2, x, y + (size + topCurveHeight) / 1.4, x, y + size);
+  ctx.bezierCurveTo(x, y + (size + topCurveHeight) / 1.4, x + size / 2, y + (size + topCurveHeight) / 2, x + size / 2, y + topCurveHeight);
+  ctx.bezierCurveTo(x + size / 2, y, x, y, x, y + topCurveHeight);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function emitParticles(count, configGen) {
+  for (let i = 0; i < count; i++) {
+    particles.push(new Particle(configGen(i)));
+  }
+}
+
+function updateAndDrawParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.update();
+    p.draw(ctx);
+    if (p.life <= 0) particles.splice(i, 1);
   }
 }
 
@@ -1194,9 +1302,17 @@ async function processFrame() {
 
   let detectedSign = null;
 
-  if (gestureRecognizer && video.videoWidth && video.videoHeight) {
+  // Process only when new frame arrived & ensure monotonic timestamp
+  if (gestureRecognizer && video.videoWidth && video.videoHeight && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    let now = performance.now();
+    if (now <= lastTimestamp) {
+      now = lastTimestamp + 1;
+    }
+    lastTimestamp = now;
+
     try {
-      latestResult = gestureRecognizer.recognizeForVideo(video, performance.now());
+      latestResult = gestureRecognizer.recognizeForVideo(video, now);
       if (latestResult?.landmarks?.length > 0) {
         const canned = latestResult.gestures?.[0]?.[0]?.categoryName || '';
         const handedness = latestResult.handednesses?.[0]?.[0]?.categoryName || 'Right';
@@ -1215,7 +1331,7 @@ async function processFrame() {
 
   const touchPoints = drawHandMesh(latestResult, detectedSign);
   updateAndDrawARBubbles(touchPoints);
-  ParticleSystem.updateAndDraw();
+  updateAndDrawParticles();
 
   requestAnimationFrame(processFrame);
 }
@@ -1224,50 +1340,110 @@ async function processFrame() {
 // Camera & MediaPipe Initialization
 // ==========================================
 async function initCamera() {
+  if (cameraRunning) return;
   updateStatus('Requesting camera access...');
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 1280, height: 720, facingMode: 'user' },
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Camera requires HTTPS or localhost.');
+    }
+
+    const constraints = {
+      video: {
+        width: { ideal: 1280, max: 1920 },
+        height: { ideal: 720, max: 1080 },
+        facingMode: 'user'
+      },
       audio: false
-    });
+    };
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (e1) {
+      console.warn('Ideal constraint failed, retrying with fallback constraint...', e1);
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    }
+
     video.srcObject = stream;
-    await video.play();
+    video.muted = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('muted', '');
+
+    await new Promise((resolve) => {
+      video.onloadedmetadata = () => {
+        video.play().then(resolve).catch(resolve);
+      };
+    });
+
+    cameraRunning = true;
+    if (cameraStartOverlay) {
+      cameraStartOverlay.classList.add('hidden');
+    }
     updateStatus('Camera active. Hold signs steady to spell words.');
+    showToast('📷', 'Camera Connected!');
   } catch (err) {
-    updateStatus('Camera unavailable. Tap ASL cheat sheet or phrases to test speech!');
+    updateStatus(`Camera note: ${err.message || 'Access needed'}. Click "Start Camera" above.`);
     console.warn('Camera error', err);
   }
 }
 
 async function initGestureRecognizer() {
-  updateStatus('Loading MediaPipe Gesture & Sign AI Model...');
+  updateStatus('Loading MediaPipe AI Model (takes a few seconds on first load)...');
   try {
-    const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
+    const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    
+    // Try GPU acceleration first
+    try {
+      gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: 'https://storage.googleapis.com/mediapipe-tasks/gesture_recognizer/gesture_recognizer.task',
+          delegate: 'GPU',
+        },
+        runningMode: 'VIDEO',
+        numHands: 2,
+        minHandDetectionConfidence: 0.5,
+        minHandPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+        cannedGesturesClassifierOptions: {
+          maxResults: 3,
+          scoreThreshold: 0.35,
+        },
+      });
+      updateStatus('AI Model ready (GPU accelerated)! Show your hand to begin.');
+      showToast('⚡', 'Neural AI Model Ready!');
+      return;
+    } catch (gpuErr) {
+      console.warn('GPU delegate failed, using CPU delegate...', gpuErr);
+    }
+
+    // CPU fallback
     gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
       baseOptions: {
         modelAssetPath: 'https://storage.googleapis.com/mediapipe-tasks/gesture_recognizer/gesture_recognizer.task',
+        delegate: 'CPU',
       },
       runningMode: 'VIDEO',
       numHands: 2,
-      minHandDetectionConfidence: 0.5,
-      minHandPresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
+      minHandDetectionConfidence: 0.45,
+      minHandPresenceConfidence: 0.45,
+      minTrackingConfidence: 0.45,
       cannedGesturesClassifierOptions: {
         maxResults: 3,
         scoreThreshold: 0.35,
       },
     });
-    updateStatus('AI Model ready! Show your hand to begin translating.');
+    updateStatus('AI Model ready (CPU mode)! Show your hand to begin.');
+    showToast('⚡', 'Neural AI Model Ready!');
   } catch (err) {
-    updateStatus('Model load error. You can still use the Quick Words & TTS.');
+    updateStatus('Model load error. Quick Words & Speech still work!');
     console.error('Model error', err);
   }
 }
 
 // ==========================================
-// Setup Event Listeners
+// Setup Event Listeners & App Bootstrap
 // ==========================================
-window.addEventListener('DOMContentLoaded', async () => {
+function startApp() {
   window.addEventListener('pointerdown', unlockAudio, { once: true });
   initSpeechVoices();
 
@@ -1279,7 +1455,15 @@ window.addEventListener('DOMContentLoaded', async () => {
     tabVfxMode.addEventListener('click', () => switchMode('vfx'));
   }
 
-  // Audio button
+  // Camera Start Button in Overlay
+  if (btnStartCamera) {
+    btnStartCamera.addEventListener('click', () => {
+      unlockAudio();
+      initCamera();
+    });
+  }
+
+  // Audio Button in Top Bar
   if (enableSoundButton) {
     enableSoundButton.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1465,8 +1649,15 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Start Recognition & Video
-  await initGestureRecognizer();
-  await initCamera();
+  // Start Model, Camera & Animation loop
+  initGestureRecognizer();
+  initCamera();
   requestAnimationFrame(processFrame);
-});
+}
+
+// Run immediately or on DOM ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startApp);
+} else {
+  startApp();
+}
