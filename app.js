@@ -86,6 +86,11 @@ let cameraRunning = false;
 // Frame processing timestamps
 let lastVideoTime = -1;
 let lastTimestamp = -1;
+let consecutiveErrors = 0;
+let isReinitializingRecognizer = false;
+let lastHandSeenTime = 0;
+let activeSign = null;
+let cachedVision = null;
 
 // Sign Translation State
 let transcript = '';
@@ -94,8 +99,9 @@ let currentCandidateSign = null;
 let candidateHoldStart = 0;
 let lastCommittedSign = null;
 let lastCommitTime = 0;
+let signCommitted = false;
 const HOLD_REQUIRED_MS = 650;
-const COMMIT_COOLDOWN_MS = 600;
+const COMMIT_COOLDOWN_MS = 750;
 
 // Web Speech API
 const synth = window.speechSynthesis;
@@ -153,7 +159,12 @@ function initSpeechVoices() {
 function speakText(text, priority = false) {
   if (!speechAudioEnabled || !synth || !text) return;
   try {
-    if (priority) synth.cancel();
+    if (synth.paused) {
+      synth.resume();
+    }
+    if (priority && synth.speaking) {
+      synth.cancel();
+    }
     const utter = new SpeechSynthesisUtterance(text);
     utter.rate = speechRate;
     utter.pitch = speechPitch;
@@ -608,6 +619,7 @@ function processSignCandidate(detected) {
   if (!detected) {
     currentCandidateSign = null;
     candidateHoldStart = 0;
+    signCommitted = false;
     if (holdProgressFill) holdProgressFill.style.width = '0%';
     if (holdPercent) holdPercent.textContent = '0%';
     if (currentSignDisplay) currentSignDisplay.textContent = '--';
@@ -623,19 +635,25 @@ function processSignCandidate(detected) {
   if (!currentCandidateSign || currentCandidateSign.sign !== detected.sign) {
     currentCandidateSign = detected;
     candidateHoldStart = now;
+    signCommitted = false;
   }
 
   const elapsed = now - candidateHoldStart;
-  const progress = Math.min(1.0, elapsed / HOLD_REQUIRED_MS);
+  const progress = Math.max(0, Math.min(1.0, elapsed / HOLD_REQUIRED_MS));
 
-  if (holdProgressFill) holdProgressFill.style.width = `${(progress * 100).toFixed(0)}%`;
-  if (holdPercent) holdPercent.textContent = `${(progress * 100).toFixed(0)}%`;
+  if (signCommitted) {
+    if (holdProgressFill) holdProgressFill.style.width = '100%';
+    if (holdPercent) holdPercent.textContent = 'Typed ✓';
+  } else {
+    if (holdProgressFill) holdProgressFill.style.width = `${(progress * 100).toFixed(0)}%`;
+    if (holdPercent) holdPercent.textContent = `${(progress * 100).toFixed(0)}%`;
+  }
 
-  if (progress >= 1.0 && (now - lastCommitTime > COMMIT_COOLDOWN_MS || lastCommittedSign !== detected.sign)) {
+  if (progress >= 1.0 && !signCommitted && (now - lastCommitTime > COMMIT_COOLDOWN_MS || lastCommittedSign !== detected.sign)) {
     commitSign(detected);
+    signCommitted = true;
     lastCommittedSign = detected.sign;
     lastCommitTime = now;
-    candidateHoldStart = now;
   }
 }
 
@@ -1006,11 +1024,11 @@ class Particle {
   }
 
   draw(context) {
-    if (this.life <= 0) return;
-    const alpha = Math.max(0, this.life / this.maxLife);
+    if (this.life <= 0 || !isFinite(this.x) || !isFinite(this.y) || !isFinite(this.size) || this.size <= 0) return;
+    const alpha = Math.max(0, Math.min(1, this.life / this.maxLife));
     context.save();
     context.translate(this.x, this.y);
-    context.rotate(this.rotation);
+    context.rotate(this.rotation || 0);
     context.globalAlpha = alpha;
 
     if (this.type === 'star') {
@@ -1023,20 +1041,21 @@ class Particle {
       context.fillStyle = this.color;
       drawHeart(context, 0, 0, this.size);
     } else if (this.type === 'fire') {
-      const grad = context.createRadialGradient(0, 0, 0, 0, 0, this.size);
+      const sz = Math.max(1, this.size);
+      const grad = context.createRadialGradient(0, 0, 0, 0, 0, sz);
       grad.addColorStop(0, '#fff4b8');
       grad.addColorStop(0.4, this.color);
       grad.addColorStop(1, 'transparent');
       context.fillStyle = grad;
       context.beginPath();
-      context.arc(0, 0, this.size, 0, Math.PI * 2);
+      context.arc(0, 0, sz, 0, Math.PI * 2);
       context.fill();
     } else {
       context.fillStyle = this.color;
       context.shadowBlur = 8;
       context.shadowColor = this.color;
       context.beginPath();
-      context.arc(0, 0, this.size, 0, Math.PI * 2);
+      context.arc(0, 0, Math.max(1, this.size), 0, Math.PI * 2);
       context.fill();
     }
     context.restore();
@@ -1044,6 +1063,7 @@ class Particle {
 }
 
 function drawStar(ctx, cx, cy, spikes, outerRadius, innerRadius) {
+  if (!isFinite(cx) || !isFinite(cy) || outerRadius <= 0 || innerRadius <= 0) return;
   let rot = (Math.PI / 2) * 3;
   let x = cx;
   let y = cy;
@@ -1066,6 +1086,7 @@ function drawStar(ctx, cx, cy, spikes, outerRadius, innerRadius) {
 }
 
 function drawHeart(ctx, x, y, size) {
+  if (!isFinite(x) || !isFinite(y) || size <= 0) return;
   ctx.beginPath();
   const topCurveHeight = size * 0.3;
   ctx.moveTo(x, y + topCurveHeight);
@@ -1100,9 +1121,12 @@ class ARBubble {
     this.reset(w, h, true);
   }
   reset(w, h, initial = false) {
+    const width = Math.max(320, w || 1280);
+    const height = Math.max(240, h || 720);
     this.radius = 22 + Math.random() * 26;
-    this.x = this.radius + Math.random() * (w - this.radius * 2);
-    this.y = initial ? Math.random() * h : h + this.radius + Math.random() * 40;
+    const availWidth = Math.max(10, width - this.radius * 2);
+    this.x = this.radius + Math.random() * availWidth;
+    this.y = initial ? Math.random() * height : height + this.radius + Math.random() * 40;
     this.vy = -(1.2 + Math.random() * 1.8);
     this.wobbleSpeed = 0.03 + Math.random() * 0.04;
     this.wobbleAmount = 1.2 + Math.random() * 2.0;
@@ -1116,11 +1140,13 @@ class ARBubble {
     if (this.y < -this.radius * 2) this.reset(w, h);
   }
   draw(context) {
+    if (!isFinite(this.x) || !isFinite(this.y) || !isFinite(this.radius) || this.radius <= 0) return;
     context.save();
     context.translate(this.x, this.y);
     context.beginPath();
     context.arc(0, 0, this.radius, 0, Math.PI * 2);
-    const grad = context.createRadialGradient(-this.radius * 0.3, -this.radius * 0.3, this.radius * 0.1, 0, 0, this.radius);
+    const r = Math.max(1, this.radius);
+    const grad = context.createRadialGradient(-r * 0.3, -r * 0.3, Math.max(0.1, r * 0.1), 0, 0, r);
     grad.addColorStop(0, `hsla(${this.hue}, 90%, 95%, 0.75)`);
     grad.addColorStop(0.5, `hsla(${this.hue}, 80%, 75%, 0.3)`);
     grad.addColorStop(1, `hsla(${this.hue}, 100%, 85%, 0.9)`);
@@ -1187,7 +1213,8 @@ const HAND_CONNECTIONS = [
 const FINGERTIPS = [4, 8, 12, 16, 20];
 
 function mirroredX(x) {
-  return canvas.width - x * canvas.width;
+  const w = canvas.width || 1280;
+  return w - x * w;
 }
 
 function drawHandMesh(result, detectedSign) {
@@ -1195,13 +1222,16 @@ function drawHandMesh(result, detectedSign) {
   const touchPoints = [];
 
   result.landmarks.forEach((handLandmarks, handIndex) => {
+    if (!handLandmarks || handLandmarks.length < 21) return;
     const isSignMode = currentAppMode === 'sign';
     const baseColor = isSignMode ? 'rgba(72, 245, 162, 0.95)' : 'rgba(76, 225, 255, 0.95)';
     const glowColor = isSignMode ? '#48f5a2' : '#4ce1ff';
 
     FINGERTIPS.forEach((idx) => {
       const lm = handLandmarks[idx];
-      if (lm) touchPoints.push({ x: mirroredX(lm.x), y: lm.y * canvas.height, id: idx });
+      if (lm && isFinite(lm.x) && isFinite(lm.y)) {
+        touchPoints.push({ x: mirroredX(lm.x), y: lm.y * canvas.height, id: idx });
+      }
     });
 
     if (skeletonEnabled) {
@@ -1214,7 +1244,7 @@ function drawHandMesh(result, detectedSign) {
       HAND_CONNECTIONS.forEach(([i, j]) => {
         const p1 = handLandmarks[i];
         const p2 = handLandmarks[j];
-        if (!p1 || !p2) return;
+        if (!p1 || !p2 || !isFinite(p1.x) || !isFinite(p1.y) || !isFinite(p2.x) || !isFinite(p2.y)) return;
         ctx.beginPath();
         ctx.moveTo(mirroredX(p1.x), p1.y * canvas.height);
         ctx.lineTo(mirroredX(p2.x), p2.y * canvas.height);
@@ -1222,6 +1252,7 @@ function drawHandMesh(result, detectedSign) {
       });
 
       handLandmarks.forEach((lm, idx) => {
+        if (!lm || !isFinite(lm.x) || !isFinite(lm.y)) return;
         const px = mirroredX(lm.x);
         const py = lm.y * canvas.height;
         const isFingertip = FINGERTIPS.includes(idx);
@@ -1234,22 +1265,22 @@ function drawHandMesh(result, detectedSign) {
     }
 
     const wrist = handLandmarks[0];
-    if (wrist) {
+    if (wrist && isFinite(wrist.x) && isFinite(wrist.y)) {
       const px = mirroredX(wrist.x);
-      const py = wrist.y * canvas.height - 28;
+      const py = Math.max(30, wrist.y * canvas.height - 28);
 
       ctx.save();
       if (isSignMode && detectedSign) {
         const now = performance.now();
         const elapsed = candidateHoldStart ? now - candidateHoldStart : 0;
-        const progress = Math.min(1.0, elapsed / HOLD_REQUIRED_MS);
+        const progress = Math.max(0, Math.min(1.0, elapsed / HOLD_REQUIRED_MS));
 
         ctx.beginPath();
         ctx.arc(px, py, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
-        ctx.strokeStyle = '#48f5a2';
+        ctx.strokeStyle = signCommitted ? '#50e3c2' : '#48f5a2';
         ctx.lineWidth = 4;
         ctx.shadowBlur = 10;
-        ctx.shadowColor = '#48f5a2';
+        ctx.shadowColor = signCommitted ? '#50e3c2' : '#48f5a2';
         ctx.stroke();
 
         ctx.font = '800 20px Inter, system-ui, sans-serif';
@@ -1285,55 +1316,100 @@ function drawHandMesh(result, detectedSign) {
 // ==========================================
 // Frame Processing Loop
 // ==========================================
-async function processFrame() {
-  if (video.videoWidth && video.videoHeight) {
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+function processFrame() {
+  // 1. ALWAYS schedule next frame FIRST so the render loop NEVER freezes or halts
+  requestAnimationFrame(processFrame);
+
+  try {
+    // Keep canvas matching video dimensions
+    if (video.videoWidth && video.videoHeight) {
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        initARBubbles(10);
+      }
+    } else if (!canvas.width || !canvas.height) {
+      canvas.width = cameraShell.clientWidth || 1280;
+      canvas.height = cameraShell.clientHeight || 720;
       initARBubbles(10);
     }
-  } else if (!canvas.width || !canvas.height) {
-    canvas.width = cameraShell.clientWidth || 1280;
-    canvas.height = cameraShell.clientHeight || 720;
-    initARBubbles(10);
-  }
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  let detectedSign = null;
-
-  // Process only when new frame arrived & ensure monotonic timestamp
-  if (gestureRecognizer && video.videoWidth && video.videoHeight && video.currentTime !== lastVideoTime) {
-    lastVideoTime = video.currentTime;
-    let now = performance.now();
-    if (now <= lastTimestamp) {
-      now = lastTimestamp + 1;
+    // Auto-resume camera if paused (e.g., after switching browser tabs)
+    if (cameraRunning && video.paused) {
+      video.play().catch(() => {});
     }
-    lastTimestamp = now;
 
-    try {
-      latestResult = gestureRecognizer.recognizeForVideo(video, now);
-      if (latestResult?.landmarks?.length > 0) {
-        const canned = latestResult.gestures?.[0]?.[0]?.categoryName || '';
-        const handedness = latestResult.handednesses?.[0]?.[0]?.categoryName || 'Right';
-        detectedSign = classifySignLanguage(latestResult.landmarks[0], handedness, canned);
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 2. Perform MediaPipe inference only when a fresh frame is ready
+    if (
+      gestureRecognizer &&
+      !isReinitializingRecognizer &&
+      video.readyState >= 2 &&
+      video.videoWidth > 0 &&
+      video.videoHeight > 0
+    ) {
+      if (video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
+
+        // Guaranteed strictly-increasing integer millisecond timestamp
+        let nowMs = Math.floor(performance.now());
+        if (nowMs <= lastTimestamp) {
+          nowMs = lastTimestamp + 1;
+        }
+        lastTimestamp = nowMs;
+
+        try {
+          const result = gestureRecognizer.recognizeForVideo(video, nowMs);
+          latestResult = result;
+          consecutiveErrors = 0;
+
+          if (result?.landmarks?.length > 0) {
+            lastHandSeenTime = performance.now();
+            const canned = result.gestures?.[0]?.[0]?.categoryName || '';
+            const handedness = result.handednesses?.[0]?.[0]?.categoryName || 'Right';
+            activeSign = classifySignLanguage(result.landmarks[0], handedness, canned);
+          } else {
+            // No hands visible - clear after 200ms debounce to prevent ghost skeleton
+            if (performance.now() - lastHandSeenTime > 200) {
+              activeSign = null;
+              latestResult = null;
+            }
+          }
+        } catch (recogErr) {
+          console.warn('Recognition frame error:', recogErr);
+          consecutiveErrors++;
+          latestResult = null;
+          activeSign = null;
+
+          // If MediaPipe graph enters an unrecoverable error state, re-init the recognizer
+          if (consecutiveErrors >= 3 && !isReinitializingRecognizer) {
+            console.warn('Auto-recovering MediaPipe GestureRecognizer...');
+            isReinitializingRecognizer = true;
+            initGestureRecognizer().finally(() => {
+              isReinitializingRecognizer = false;
+              consecutiveErrors = 0;
+            });
+          }
+        }
       }
-    } catch (err) {
-      console.warn('Recognition error', err);
     }
+
+    // 3. Process candidate sign (preserves active sign across 30fps webcam vs 60/120fps display refresh)
+    if (currentAppMode === 'sign') {
+      processSignCandidate(activeSign);
+    } else {
+      handleVfxGestures(latestResult);
+    }
+
+    // 4. Draw AR visualizer layers
+    const touchPoints = drawHandMesh(latestResult, activeSign);
+    updateAndDrawARBubbles(touchPoints);
+    updateAndDrawParticles();
+  } catch (loopErr) {
+    console.error('Safe loop recovered from error:', loopErr);
   }
-
-  if (currentAppMode === 'sign') {
-    processSignCandidate(detectedSign);
-  } else {
-    handleVfxGestures(latestResult);
-  }
-
-  const touchPoints = drawHandMesh(latestResult, detectedSign);
-  updateAndDrawARBubbles(touchPoints);
-  updateAndDrawParticles();
-
-  requestAnimationFrame(processFrame);
 }
 
 // ==========================================
@@ -1388,9 +1464,12 @@ async function initCamera() {
 }
 
 async function initGestureRecognizer() {
-  updateStatus('Loading MediaPipe AI Model (takes a few seconds on first load)...');
+  updateStatus('Loading MediaPipe AI Model...');
   try {
-    const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    if (!cachedVision) {
+      cachedVision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    }
+    const vision = cachedVision;
     
     // Try GPU acceleration first
     try {
