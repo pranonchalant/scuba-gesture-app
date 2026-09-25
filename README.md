@@ -2,6 +2,8 @@
 
 An interactive, browser-based web application powered by **Google MediaPipe Vision** and the **Web Speech API** that performs real-time hand gesture detection, ASL sign language translation with text-to-speech conversion, and interactive augmented reality VFX.
 
+### 🌐 Live Demo: [pranonchalant.github.io/scuba-gesture-app](https://pranonchalant.github.io/scuba-gesture-app/)
+
 ---
 
 ## ✨ Features
