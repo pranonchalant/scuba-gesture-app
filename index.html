@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CyberHands - Sign Language to Speech & Gesture Effects Studio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Header -->
+    <header class="top-bar">
+      <div class="title-section">
+        <h1>🗣️ CyberHands Sign-to-Speech Studio</h1>
+        <p>Real-time ASL sign language detection, automated speech synthesis, and interactive AR effects!</p>
+      </div>
+
+      <div class="header-badges">
+        <div id="gestureLiveBadge" class="stat-badge green">
+          <span id="activeBadgeIcon">🖐️</span>
+          <span id="activeGestureName">No hands detected</span>
+        </div>
+        <div id="statBadgeCount" class="stat-badge gold">
+          <span>📝</span>
+          <span>Spelled: <strong id="letterCount">0</strong></span>
+        </div>
+        <button id="enableSoundButton" class="sound-button">
+          <span>🔊</span>
+          <span id="soundButtonText">Enable Audio</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Mode Navigation Tabs -->
+    <nav class="mode-switch-bar">
+      <div class="mode-tabs">
+        <button id="tabSignMode" class="mode-tab active">
+          <span>🗣️</span>
+          <span>Sign-to-Speech Translator</span>
+        </button>
+        <button id="tabVfxMode" class="mode-tab">
+          <span>✨</span>
+          <span>AR & VFX Playground</span>
+        </button>
+      </div>
+      <div class="quick-hint" id="modeHintText">
+        💡 Tip: Hold any sign steady for 0.7s to type the letter into speech!
+      </div>
+    </nav>
+
+    <!-- ==============================================
+         SIGN LANGUAGE TO SPEECH TRANSLATION STUDIO
+         ============================================== -->
+    <section class="sign-studio" id="signStudioSection">
+      <!-- Live Detection & Transcript Row -->
+      <div class="sign-status-row">
+        <!-- Live Sign Hold Card -->
+        <div class="live-sign-card" id="liveSignCard">
+          <div class="sign-header-label">Detected Sign</div>
+          <div class="sign-letter-big" id="currentSignDisplay">--</div>
+          <div class="sign-meta-desc" id="signInstruction">Bring hand into camera view</div>
+
+          <div class="hold-meter-wrapper" id="holdMeterWrapper">
+            <div class="hold-meter-label">
+              <span>Hold to type</span>
+              <span id="holdPercent">0%</span>
+            </div>
+            <div class="hold-progress-bar">
+              <div class="hold-progress-fill" id="holdProgressFill"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Sentence Transcript -->
+        <div class="transcript-card">
+          <div class="transcript-header">
+            <div class="transcript-title">
+              <span>📝 Speech Transcript</span>
+            </div>
+            <span class="quick-hint" id="transcriptWordCount">0 words</span>
+          </div>
+
+          <div class="transcript-box" id="transcriptBox">
+            <span id="transcriptText"></span><span class="blinking-cursor"></span>
+          </div>
+
+          <div class="transcript-actions">
+            <div class="action-btn-group">
+              <button id="btnSpeakSentence" class="action-btn btn-speak" title="Speak sentence aloud">
+                <span>🔊</span>
+                <span>Speak Out Loud</span>
+              </button>
+              <button id="btnSpace" class="action-btn" title="Add space between words">
+                <span>␣</span>
+                <span>Space</span>
+              </button>
+              <button id="btnBackspace" class="action-btn" title="Delete last character">
+                <span>⌫</span>
+                <span>Backspace</span>
+              </button>
+              <button id="btnClear" class="action-btn" title="Clear transcript">
+                <span>🗑️</span>
+                <span>Clear</span>
+              </button>
+            </div>
+            <button id="btnCopy" class="action-btn" title="Copy text to clipboard">
+              <span>📋</span>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Word Bank -->
+      <div class="word-bank-card">
+        <div class="word-bank-header">
+          <span>⚡ Common Sign Phrases (Instant Speak & Insert)</span>
+          <span>Click any word to speak aloud</span>
+        </div>
+        <div class="word-chips-grid" id="wordChipsGrid">
+          <button class="word-chip" data-phrase="Hello">👋 Hello</button>
+          <button class="word-chip" data-phrase="Thank you">🙏 Thank you</button>
+          <button class="word-chip" data-phrase="Yes">👍 Yes</button>
+          <button class="word-chip" data-phrase="No">👎 No</button>
+          <button class="word-chip" data-phrase="I love you">💖 I love you</button>
+          <button class="word-chip" data-phrase="Please help">🆘 Please help</button>
+          <button class="word-chip" data-phrase="Please">😊 Please</button>
+          <button class="word-chip" data-phrase="Good job">✨ Good job</button>
+          <button class="word-chip" data-phrase="Peace">✌️ Peace</button>
+          <button class="word-chip" data-phrase="How are you?">❓ How are you?</button>
+        </div>
+      </div>
+
+      <!-- Text-to-Speech Customization Settings -->
+      <details class="tts-settings-card">
+        <summary>⚙️ Speech Synthesis (TTS) Voice & Reading Settings</summary>
+        <div class="tts-settings-inner">
+          <div class="setting-item">
+            <label for="ttsVoiceSelect">Speech Voice</label>
+            <select id="ttsVoiceSelect">
+              <option value="">Default System Voice</option>
+            </select>
+          </div>
+          <div class="setting-item">
+            <label for="ttsRateSlider">Reading Speed: <span id="ttsRateValue">1.0x</span></label>
+            <input type="range" id="ttsRateSlider" min="0.6" max="1.6" step="0.1" value="1.0" />
+          </div>
+          <div class="setting-item">
+            <label for="ttsPitchSlider">Voice Pitch: <span id="ttsPitchValue">1.0</span></label>
+            <input type="range" id="ttsPitchSlider" min="0.6" max="1.4" step="0.1" value="1.0" />
+          </div>
+          <div class="setting-item" style="justify-content: center;">
+            <label class="checkbox-item">
+              <input type="checkbox" id="chkSpeakLetters" checked />
+              <span>Pronounce each letter as typed</span>
+            </label>
+            <label class="checkbox-item" style="margin-top: 0.4rem;">
+              <input type="checkbox" id="chkAutoSpeak" checked />
+              <span>Auto-speak completed words on Space</span>
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <!-- ASL Alphabet & Sign Cheat Sheet -->
+      <details class="asl-cheat-sheet" id="aslCheatSheet">
+        <summary>📖 ASL Finger-Spelling & Signs Reference Chart (Click a letter to practice)</summary>
+        <div class="asl-grid" id="aslGrid">
+          <div class="asl-card" data-asl="A"><div class="asl-letter">A</div><div class="asl-hint">Fist + Thumb Side</div></div>
+          <div class="asl-card" data-asl="B"><div class="asl-letter">B</div><div class="asl-hint">4 Up + Thumb Fold</div></div>
+          <div class="asl-card" data-asl="C"><div class="asl-letter">C</div><div class="asl-hint">Curved Arc</div></div>
+          <div class="asl-card" data-asl="D"><div class="asl-letter">D</div><div class="asl-hint">Index Up + Loop</div></div>
+          <div class="asl-card" data-asl="E"><div class="asl-letter">E</div><div class="asl-hint">Claw Over Thumb</div></div>
+          <div class="asl-card" data-asl="F"><div class="asl-letter">F</div><div class="asl-hint">Index-Thumb Touch</div></div>
+          <div class="asl-card" data-asl="I"><div class="asl-letter">I</div><div class="asl-hint">Pinky Up</div></div>
+          <div class="asl-card" data-asl="L"><div class="asl-letter">L</div><div class="asl-hint">Index + Thumb 90°</div></div>
+          <div class="asl-card" data-asl="O"><div class="asl-letter">O</div><div class="asl-hint">O-Circle</div></div>
+          <div class="asl-card" data-asl="U"><div class="asl-letter">U</div><div class="asl-hint">Index+Mid Together</div></div>
+          <div class="asl-card" data-asl="V"><div class="asl-letter">V</div><div class="asl-hint">Index+Mid Spread</div></div>
+          <div class="asl-card" data-asl="W"><div class="asl-letter">W</div><div class="asl-hint">3 Fingers Spread</div></div>
+          <div class="asl-card" data-asl="Y"><div class="asl-letter">Y</div><div class="asl-hint">Thumb+Pinky Out</div></div>
+          <div class="asl-card" data-asl="ILY"><div class="asl-letter">🤟</div><div class="asl-hint">I Love You</div></div>
+          <div class="asl-card" data-asl="HELLO"><div class="asl-letter">👋</div><div class="asl-hint">Open Palm Hello</div></div>
+          <div class="asl-card" data-asl="YES"><div class="asl-letter">👍</div><div class="asl-hint">Thumbs Up / Yes</div></div>
+          <div class="asl-card" data-asl="NO"><div class="asl-letter">👎</div><div class="asl-hint">Thumbs Down / No</div></div>
+        </div>
+      </details>
+    </section>
+
+    <!-- ==============================================
+         AR & VFX PLAYGROUND SECTION (Visible in VFX Mode)
+         ============================================== -->
+    <section class="gesture-legend" id="gestureLegend" style="display: none;">
+      <div class="gesture-card" data-gesture="Closed_Fist" title="Make a closed fist">
+        <div class="icon">✊</div>
+        <div class="name">Closed Fist</div>
+        <div class="action">Fire Blast & Shake</div>
+      </div>
+      <div class="gesture-card" data-gesture="Open_Palm" title="Open your palm">
+        <div class="icon">🖐️</div>
+        <div class="name">Open Palm</div>
+        <div class="action">Force Shield & Stream</div>
+      </div>
+      <div class="gesture-card" data-gesture="Dual_Palm" title="Hold up both open hands">
+        <div class="icon">🙌</div>
+        <div class="name">Dual Palms</div>
+        <div class="action">Connected Gateway</div>
+      </div>
+      <div class="gesture-card" data-gesture="Victory" title="Show a peace / victory sign">
+        <div class="icon">✌️</div>
+        <div class="name">Peace Sign</div>
+        <div class="action">Fireworks & Confetti</div>
+      </div>
+      <div class="gesture-card" data-gesture="Thumb_Up" title="Give a thumbs up">
+        <div class="icon">👍</div>
+        <div class="name">Thumbs Up</div>
+        <div class="action">Stars & Upbeat Chime</div>
+      </div>
+      <div class="gesture-card" data-gesture="Thumb_Down" title="Give a thumbs down">
+        <div class="icon">👎</div>
+        <div class="name">Thumbs Down</div>
+        <div class="action">Blizzard & Frost</div>
+      </div>
+      <div class="gesture-card" data-gesture="Pointing_Up" title="Point with index finger">
+        <div class="icon">☝️</div>
+        <div class="name">Pointing Up</div>
+        <div class="action">Laser Wand & Pop</div>
+      </div>
+      <div class="gesture-card" data-gesture="ILoveYou" title="Make the rock/love sign">
+        <div class="icon">🤟</div>
+        <div class="name">Love Sign</div>
+        <div class="action">Neon Hearts Shower</div>
+      </div>
+      <div class="gesture-card" data-gesture="Pinch" title="Pinch thumb and index together">
+        <div class="icon">🤏</div>
+        <div class="name">Pinch</div>
+        <div class="action">Sparkle Vortex</div>
+      </div>
+    </section>
+
+    <!-- Interactive Toggles Bar -->
+    <div class="controls-bar">
+      <div class="toggle-group">
+        <span class="toggle-label">Interactive Modes:</span>
+        <button id="toggleSpeechBtn" class="toggle-btn active" data-feature="speech">
+          <span>🗣️</span>
+          <span>Speech Audio</span>
+        </button>
+        <button id="toggleBubblesBtn" class="toggle-btn active" data-feature="bubbles">
+          <span>🫧</span>
+          <span>AR Bubble Popper</span>
+        </button>
+        <button id="toggleTrailsBtn" class="toggle-btn active" data-feature="trails">
+          <span>🪄</span>
+          <span>Magic Trails</span>
+        </button>
+        <button id="toggleSkeletonBtn" class="toggle-btn active" data-feature="skeleton">
+          <span>🦴</span>
+          <span>Cyber Skeleton</span>
+        </button>
+      </div>
+      <div class="quick-hint">
+        ⚡ 60 FPS Neural Hand Mesh
+      </div>
+    </div>
+
+    <!-- Camera Shell -->
+    <div class="camera-shell" id="cameraShell">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <div id="overlay" class="overlay"></div>
+
+      <!-- Live Gesture Toast Notification -->
+      <div id="gestureToast" class="gesture-toast">
+        <span id="toastIcon">✨</span>
+        <span id="toastText">Gesture Ready</span>
+      </div>
+
+      <!-- Scuba & Connected Media -->
+      <img id="scubaGif" class="scuba-gif" src="https://media1.tenor.com/m/Rd0jrWH5JjgAAAAd/cat-scuba.gif" alt="Scuba Cat GIF" />
+      <video id="scubaVideo" class="scuba-video" playsinline preload="auto" loop muted></video>
+      <video id="connectedVideo" class="connected-video" src="connected.mp4" playsinline preload="auto"></video>
+    </div>
+
+    <!-- Collapsible Media Customization -->
+    <details class="media-controls">
+      <summary>⚙️ Custom Background Media & Audio Settings (Optional)</summary>
+      <div class="media-controls-inner">
+        <div class="file-group">
+          <h2>Scuba Effect Custom Media</h2>
+          <label>Custom Scuba Audio <input id="scubaAudioInput" type="file" accept="audio/*" /></label>
+          <label>Custom Scuba Visual <input id="scubaVisualInput" type="file" accept="image/*,video/*" /></label>
+        </div>
+        <div class="file-group">
+          <h2>Connected Effect Custom Media</h2>
+          <label>Custom Connected Video <input id="connectedVideoInput" type="file" accept="video/*" /></label>
+          <label>Custom Connected Audio <input id="connectedAudioInput" type="file" accept="audio/*" /></label>
+        </div>
+      </div>
+    </details>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span class="status">Initializing AI gesture model and camera...</span>
+      <span class="quick-hint">🎙️ Web Speech API + Google MediaPipe Vision</span>
+    </footer>
+  </div>
+
+  <audio id="audio" src="scuba.wav" preload="auto"></audio>
+  <audio id="connectedAudio" src="scuba.wav" preload="auto" style="display:none;"></audio>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
